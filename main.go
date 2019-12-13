@@ -96,9 +96,9 @@ func main() {
 
 	switch params.command {
 	case "status":
-		icinga, err = Check_InterfaceStatus(params.host, params.username, params.password, params.identity, params.port)
+		icinga, err = CheckInterfaceStatus(params.host, params.username, params.password, params.identity, params.port)
 		if err != nil {
-			fmt.Printf("%s: Error Check_InterfaceStatus => %s", ict.CriMsg, err)
+			fmt.Printf("%s: Error CheckInterfaceStatus => %s", ict.CriMsg, err)
 			os.Exit(ict.CriCode)
 		}
 		fmt.Printf("%s | %s", icinga.Message, icinga.Message)
