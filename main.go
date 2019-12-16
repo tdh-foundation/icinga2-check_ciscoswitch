@@ -18,7 +18,7 @@ var (
 	buildcount string
 	usage      string
 
-	paramsstruct {
+	params struct {
 		command    string
 		host       string
 		port       int
