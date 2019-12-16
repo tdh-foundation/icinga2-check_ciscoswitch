@@ -1,33 +1,93 @@
+// This file content implementation of methods to check CISCO 2960/Nexus switch
+// interfaces status
 package main
 
 import (
 	"fmt"
+	ict "github.com/tdh-foundation/icinga2-go-checktools"
 	"regexp"
 	"strings"
 )
 
 //noinspection ALL
-const (
-	Connected    = "connected"
-	NotConnected = "notconnect"
-	Disabled     = "disabled"
-	ErrDisabled  = "err-disabled"
+var (
+	Connected    = regexp.MustCompile(`(?i)^connected$`)
+	NotConnected = regexp.MustCompile(`(?i)^notconnect?$`)
+	Disabled     = regexp.MustCompile(`(?i)^disabled$`)
+	ErrDisabled  = regexp.MustCompile(`(?i)^err-dis[a-zA-Z]+$`)
+	XcrvrAbsen   = regexp.MustCompile(`(?i)^xcvrabsen$`)
+	NoOperMem    = regexp.MustCompile(`(?i)^noOpermem$`)
+	Down         = regexp.MustCompile(`(?i)^down$`)
+
+	OkCondition  = []*regexp.Regexp{Connected, NotConnected, Disabled, Down, XcrvrAbsen}
+	CriCondition = []*regexp.Regexp{ErrDisabled}
+	WarCondition = []*regexp.Regexp{NoOperMem}
 )
 
-type CiscoSwitch struct {
-	name   string
-	status []InterfaceStatus
+// CiscoSwitchStatus implement SwitchStatus Interface
+type CiscoSwitchStatus ict.SwitchStatus
+
+// Instantiate a new CiscoSwitchStatus
+func NewCiscoSwitch(name string) *CiscoSwitchStatus {
+	cs := new(CiscoSwitchStatus)
+	cs.Name = name
+	return cs
 }
 
-func NewCiscoSwitch(name string) *CiscoSwitch {
-	return &CiscoSwitch{name, []InterfaceStatus{}}
+// getCondition is a private method who return Icinga Exit condition value
+func getCondition(status ict.SwitchInterfaceStatus) int {
+	for i := range OkCondition {
+		if OkCondition[i].MatchString(status.Status) {
+			return ict.OkExit
+		}
+	}
+	for i := range CriCondition {
+		if CriCondition[i].MatchString(status.Status) {
+			return ict.CriExit
+		}
+	}
+	for i := range OkCondition {
+		if WarCondition[i].MatchString(status.Status) {
+			return ict.WarExit
+		}
+	}
+	return ict.UnkExit
+}
+
+// CheckInterfaceStatus
+func (cSwitchStatus *CiscoSwitchStatus) CheckInterfaceStatus(host string, username string, password string, identity string, port int) (ict.Icinga, error) {
+
+	var ssh *ict.SSHTools
+
+	// Opening a ssh session to the switch
+	ssh, err = ict.NewSSHTools(host, username, password, identity, port)
+	if err != nil {
+		return ict.Icinga{}, err
+	}
+
+	// Sending command to the switch and getting returned data
+	err = ssh.SendSSH("show interface status")
+	if err != nil {
+		return ict.Icinga{}, err
+	}
+
+	// Parsing Stdout data to a structured slice
+	err = cSwitchStatus.ParseInterfaceStatus(ssh.Stdout)
+	if err != nil {
+		err = fmt.Errorf("error ParseInterfaceStatus: %v", err)
+		return ict.Icinga{}, err
+	}
+
+	// Generate Icinga result "{status}:[Message][| Metric]"
+	return cSwitchStatus.ReturnIcingaResult(), nil
 }
 
 // ParseInterfaceStatus from response received from Cisco Switch Request
-func (sw CiscoSwitch) ParseInterfaceStatus(response string) error {
+//noinspection GoNilness
+func (cSwitchStatus *CiscoSwitchStatus) ParseInterfaceStatus(response string) error {
 
 	// Clearing/resetting respStatus slice
-	sw.status = sw.status[:0]
+	cSwitchStatus.SwStatus = cSwitchStatus.SwStatus[:0]
 
 	// Converting multi-line string to slice of string
 	respStatus := strings.Split(response, "\n")
@@ -47,7 +107,8 @@ func (sw CiscoSwitch) ParseInterfaceStatus(response string) error {
 	}
 
 	// Interfaces response is a fixed size column array => finding position end size of each columns based of Header
-	re := regexp.MustCompile(`(?i)(?P<Port>Port\s+)(?P<Name>Name\s+)(?P<Status>Status\s+)(?P<Vlan>Vlan\s+)(?P<Duplex>Duplex\s+)(?P<Speed>Speed\s+)(?P<Type>Type\s?)`)
+	re := regexp.MustCompile(`(?i)(?P<Port>Port\s+)(?P<Name>Name\s+)(?P<status>status\s+)(?P<Vlan>Vlan\s+)(?P<Duplex>Duplex\s+)(?P<Speed>Speed\s+)(?P<Type>Type\s?)`)
+	reSplit := regexp.MustCompile(`\s+`)
 	borders := re.FindStringSubmatchIndex(respStatus[0])
 
 	if borders == nil || len(borders) != 16 {
@@ -56,16 +117,54 @@ func (sw CiscoSwitch) ParseInterfaceStatus(response string) error {
 
 	// converting string to structured data
 	for _, s := range respStatus[1:] {
-		item := InterfaceStatus{}
+		item := ict.SwitchInterfaceStatus{}
 		item.Port = strings.Trim(s[borders[2]:borders[3]], " \r")
 		item.Name = strings.Trim(s[borders[4]:borders[5]], " \r")
 		item.Status = strings.Trim(s[borders[6]:borders[7]], " \r")
-		item.Vlan = strings.Trim(s[borders[8]:borders[9]], " \r")
-		item.Duplex = strings.Trim(s[borders[10]:borders[11]], " \r")
-		item.Speed = strings.Trim(s[borders[12]:borders[13]], " \r")
+
+		// For Cisco 2960X output, Duplex and speed are right justified
+		vds := reSplit.Split(strings.Trim(s[borders[8]:borders[13]], " \r"), -1) //Vlan-Duplex-Speed
+		if len(vds) != 3 {
+			return fmt.Errorf("error parsing Vlan/Duplex/Speed in Cisco interface respStatus")
+		}
+		item.Vlan = strings.Trim(vds[0], " \r")
+		item.Duplex = strings.Trim(vds[1], " \r")
+		item.Speed = strings.Trim(vds[2], " \r")
+
 		item.Type = strings.Trim(s[borders[14]:], " \r")
-		sw.status = append(sw.status, item)
+		cSwitchStatus.SwStatus = append(cSwitchStatus.SwStatus, item)
 	}
 
 	return nil
+}
+
+// ReturnIcingaResult convert
+func (cSwitchStatus *CiscoSwitchStatus) ReturnIcingaResult() ict.Icinga {
+	icinga := ict.Icinga{Message: ict.UnkMsg, Exit: ict.UnkExit, Metric: ""}
+
+	for _, item := range cSwitchStatus.SwStatus {
+		switch getCondition(item) {
+		case ict.OkExit:
+			if icinga.Exit == ict.UnkExit {
+				icinga.Exit = ict.OkExit
+			}
+		case ict.WarExit:
+			if icinga.Exit != ict.CriExit {
+				icinga.Exit = ict.WarExit
+			}
+		case ict.CriExit:
+			icinga.Exit = ict.CriExit
+		default:
+			if icinga.Exit != ict.CriExit && icinga.Exit != ict.WarExit {
+				icinga.Exit = ict.UnkExit
+			}
+		}
+	}
+
+	return icinga
+}
+
+// Status return SwitchInterfaceStatusArray
+func (cSwitchStatus *CiscoSwitchStatus) Status() []ict.SwitchInterfaceStatus {
+	return cSwitchStatus.SwStatus
 }

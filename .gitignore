@@ -18,3 +18,5 @@ vendor/
 
 .idea/
 /go.sum
+/check_ciscoswitch
+/check_ciscoswitch.exe

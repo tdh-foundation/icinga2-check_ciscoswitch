@@ -9,6 +9,7 @@ import (
 	ict "github.com/tdh-foundation/icinga2-go-checktools"
 	"os"
 	"strconv"
+	"strings"
 )
 
 var (
@@ -17,15 +18,16 @@ var (
 	buildcount string
 	usage      string
 
-	params struct {
-		command  string
-		host     string
-		port     int
-		username string
-		password string
-		identity string
-		version  bool
-		verbose  bool
+	paramsstruct {
+		command    string
+		host       string
+		port       int
+		username   string
+		password   string
+		identity   string
+		version    bool
+		verbose    bool
+		switchType string
 	}
 )
 
@@ -46,6 +48,7 @@ Options:
 	-p <password> --password=<password>  	Password
 	-i <pkey_file> --identity=<pkey_file>  	Private key file [default: ~/.ssh/id_rsa]
 	-P <port> --port=<port>  		Port number [default: 22]
+	-s <switch_type> --switch-type=<switch_type> Switch Type (CISCO)
 `
 	// Don't parse command line argument for testing argument must be passed with OS environment variable
 	if os.Getenv("CHECK_MODE") == "TEST" {
@@ -63,6 +66,7 @@ Options:
 		}
 		params.verbose, _ = strconv.ParseBool(os.Getenv("VERBOSE"))
 		params.command = os.Getenv("COMMAND")
+		params.switchType = os.Getenv("SWITCH_TYPE")
 	} else {
 		arguments, err = docopt.ParseDoc(usage)
 		if err != nil {
@@ -81,32 +85,45 @@ Options:
 		params.password, _ = arguments.String("--password")
 		params.identity, _ = arguments.String("--identity")
 		params.verbose, _ = arguments.Bool("--verbose")
+		params.switchType, _ = arguments.String("--switch-type")
 	}
-
 }
 
 func main() {
 	var err error
 	var icinga ict.Icinga
+	var sw ict.SwitchInterface
 
-	if params.version {
-		fmt.Printf("check_ciscoswitch version 0.0.0-build %s\n", buildcount)
-		os.Exit(ict.OkCode)
+	//TODO: Currently check are implemented to check CISCO 2960 and CISCO Nexu switch
+	//		in this place we can implement other Switch Brand and models
+	switch strings.ToUpper(params.switchType) {
+	case "CISCO":
+		sw = NewCiscoSwitch(params.host)
+	default:
+		sw = NewCiscoSwitch(params.host)
 	}
 
+	// We return version of program and exit with Ok status
+	if params.version {
+		fmt.Printf("check_ciscoswitch version 0.0.0-build %s\n", buildcount)
+		os.Exit(ict.OkExit)
+	}
+
+	// Check command arguments and calling method
 	switch params.command {
 	case "status":
-		icinga, err = CheckInterfaceStatus(params.host, params.username, params.password, params.identity, params.port)
+		icinga, err = sw.CheckInterfaceStatus(params.host, params.username, params.password, params.identity, params.port)
 		if err != nil {
 			fmt.Printf("%s: Error CheckInterfaceStatus => %s", ict.CriMsg, err)
-			os.Exit(ict.CriCode)
+			os.Exit(ict.CriExit)
 		}
-		fmt.Printf("%s | %s", icinga.Message, icinga.Message)
+
+		fmt.Println(icinga)
 		os.Exit(icinga.Exit)
 	default:
 		fmt.Printf("check_ciscoswitch version 0.0.0-build %s\n", buildcount)
 		fmt.Printf("Usage: %s", usage)
-		os.Exit(ict.CriCode)
+		os.Exit(ict.CriExit)
 	}
 
 }

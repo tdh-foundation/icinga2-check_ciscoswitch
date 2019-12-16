@@ -1,6 +1,7 @@
 package main
 
 import (
+	ict "github.com/tdh-foundation/icinga2-go-checktools"
 	"os"
 	"testing"
 )
@@ -8,7 +9,7 @@ import (
 const (
 	Cisco2960Response = `
 
-Port      Name               Status       Vlan       Duplex  Speed Type 
+Port      Name               status       Vlan       Duplex  Speed Type 
 Gi1/0/1   ** User - Phone ** notconnect   3            auto   auto 10/100/1000BaseTX
 Gi1/0/2   ** User - Phone ** connected    3          a-full  a-100 10/100/1000BaseTX
 Gi1/0/3   ** User - Phone ** connected    3          a-full a-1000 10/100/1000BaseTX
@@ -215,7 +216,7 @@ Fa0                          disabled     routed       auto   auto 10/100BaseTX`
 
 	CiscoNXResponse = `
 --------------------------------------------------------------------------------
-Port          Name               Status    Vlan      Duplex  Speed   Type
+Port          Name               status    Vlan      Duplex  Speed   Type
 --------------------------------------------------------------------------------
 mgmt0         --                 connected routed    full    1000    --         
 Eth1/1        * Vlan 7 PBX11 *   notconnec 7         full    1000    1000base-T 
@@ -298,7 +299,12 @@ Vlan5         --                 connected routed    auto    auto    --
 Vlan7         --                 connected routed    auto    auto    --
 Vlan100       --                 connected routed    auto    auto    --
 `
+
+	Cisco2960IntefacesCount = 203
+	CiscoNXInterfacesCount  = 80
 )
+
+var sw ict.SwitchInterface
 
 func TestMain(m *testing.M) {
 	exitCode := m.Run()
@@ -307,17 +313,45 @@ func TestMain(m *testing.M) {
 
 // Testing basic parsing if error occurs with mock response we stop test with failed status
 func TestCiscoSwitch_ParseInterfaceStatus(t *testing.T) {
-	sw := NewCiscoSwitch(params.host)
+	sw = NewCiscoSwitch(params.host)
 	if err := sw.ParseInterfaceStatus(Cisco2960Response); err != nil {
 		t.Fatalf("Error parsing C2960 response: %s", err)
 	}
+	if len(sw.Status()) != Cisco2960IntefacesCount {
+		t.Errorf("Error want %d interfaces got %d", Cisco2960IntefacesCount, len(sw.Status()))
+	}
+
+	wantStatus := ict.SwitchInterfaceStatus{Port: "Gi2/0/11",
+		Name:   "** User - Phone **",
+		Status: "connected",
+		Vlan:   "3",
+		Duplex: "a-full",
+		Speed:  "a-1000",
+		Type:   "10/100/1000BaseTX",
+	}
+
+	gi2011 := sw.Status()[60]
+	if gi2011.Port != wantStatus.Port ||
+		gi2011.Name != wantStatus.Name ||
+		gi2011.Status != wantStatus.Status ||
+		gi2011.Vlan != wantStatus.Vlan ||
+		gi2011.Duplex != wantStatus.Duplex ||
+		gi2011.Speed != wantStatus.Speed ||
+		gi2011.Type != wantStatus.Type {
+		t.Errorf("Status fail result %s, want Status %s", sw.Status()[60], wantStatus)
+	}
+
 	if err := sw.ParseInterfaceStatus(CiscoNXResponse); err != nil {
 		t.Fatalf("Error parsing C2960 response: %s", err)
+	}
+
+	if len(sw.Status()) != CiscoNXInterfacesCount {
+		t.Errorf("Error want %d interfaces got %d", CiscoNXInterfacesCount, len(sw.Status()))
 	}
 }
 
 func TestCheck_InterfaceStatus(t *testing.T) {
-	_, err := CheckInterfaceStatus(params.host, params.username, params.password, params.identity, params.port)
+	_, err := sw.CheckInterfaceStatus(params.host, params.username, params.password, params.identity, params.port)
 	if err != nil {
 		t.Errorf("Error CheckInterfaceStatus: %s", err)
 	}
