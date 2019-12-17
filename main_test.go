@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	ict "github.com/tdh-foundation/icinga2-go-checktools"
 	"os"
 	"testing"
@@ -320,6 +321,7 @@ func TestCiscoSwitch_ParseInterfaceStatus(t *testing.T) {
 	if len(sw.Status()) != Cisco2960IntefacesCount {
 		t.Errorf("Error want %d interfaces got %d", Cisco2960IntefacesCount, len(sw.Status()))
 	}
+	fmt.Println(sw.ReturnIcingaResult())
 
 	wantStatus := ict.SwitchInterfaceStatus{Port: "Gi2/0/11",
 		Name:   "** User - Phone **",
@@ -348,6 +350,8 @@ func TestCiscoSwitch_ParseInterfaceStatus(t *testing.T) {
 	if len(sw.Status()) != CiscoNXInterfacesCount {
 		t.Errorf("Error want %d interfaces got %d", CiscoNXInterfacesCount, len(sw.Status()))
 	}
+	fmt.Println(sw.ReturnIcingaResult())
+
 }
 
 func TestCheck_InterfaceStatus(t *testing.T) {

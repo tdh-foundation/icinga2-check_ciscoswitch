@@ -10,6 +10,12 @@ import (
 )
 
 //noinspection ALL
+const (
+	Up        = 1
+	Down      = 0
+	Exception = -1
+)
+
 var (
 	Connected    = regexp.MustCompile(`(?i)^connected$`)
 	NotConnected = regexp.MustCompile(`(?i)^notconnect?$`)
@@ -17,11 +23,16 @@ var (
 	ErrDisabled  = regexp.MustCompile(`(?i)^err-dis[a-zA-Z]+$`)
 	XcrvrAbsen   = regexp.MustCompile(`(?i)^xcvrabsen$`)
 	NoOperMem    = regexp.MustCompile(`(?i)^noOpermem$`)
-	Down         = regexp.MustCompile(`(?i)^down$`)
+	DownStatus   = regexp.MustCompile(`(?i)^down$`)
 
-	OkCondition  = []*regexp.Regexp{Connected, NotConnected, Disabled, Down, XcrvrAbsen}
+	// Status condtions
+	OkCondition  = []*regexp.Regexp{Connected, NotConnected, Disabled, DownStatus, XcrvrAbsen}
 	CriCondition = []*regexp.Regexp{ErrDisabled}
 	WarCondition = []*regexp.Regexp{NoOperMem}
+
+	// Metric conditions
+	UpCondition   = []*regexp.Regexp{Connected}
+	DownCondition = []*regexp.Regexp{NotConnected, Disabled, DownStatus, XcrvrAbsen}
 )
 
 // CiscoSwitchStatus implement SwitchStatus Interface
@@ -34,8 +45,8 @@ func NewCiscoSwitch(name string) *CiscoSwitchStatus {
 	return cs
 }
 
-// getCondition is a private method who return Icinga Exit condition value
-func getCondition(status ict.SwitchInterfaceStatus) int {
+// getStatusCondition is a private method who return Icinga Exit condition value
+func getStatusCondition(status ict.SwitchInterfaceStatus) int {
 	for i := range OkCondition {
 		if OkCondition[i].MatchString(status.Status) {
 			return ict.OkExit
@@ -46,12 +57,27 @@ func getCondition(status ict.SwitchInterfaceStatus) int {
 			return ict.CriExit
 		}
 	}
-	for i := range OkCondition {
+	for i := range WarCondition {
 		if WarCondition[i].MatchString(status.Status) {
 			return ict.WarExit
 		}
 	}
 	return ict.UnkExit
+}
+
+// getMetricCondition is a private method who return information about usage of interface for Icinga Metric
+func getMetricCondition(status ict.SwitchInterfaceStatus) int {
+	for i := range UpCondition {
+		if UpCondition[i].MatchString(status.Status) {
+			return Up
+		}
+	}
+	for i := range DownCondition {
+		if DownCondition[i].MatchString(status.Status) {
+			return Down
+		}
+	}
+	return Exception
 }
 
 // CheckInterfaceStatus
@@ -140,10 +166,17 @@ func (cSwitchStatus *CiscoSwitchStatus) ParseInterfaceStatus(response string) er
 
 // ReturnIcingaResult convert
 func (cSwitchStatus *CiscoSwitchStatus) ReturnIcingaResult() ict.Icinga {
+	// Counter for metric
+	var up, down, exception, all int
+
+	// Initialize default Icinga status
 	icinga := ict.Icinga{Message: ict.UnkMsg, Exit: ict.UnkExit, Metric: ""}
 
+	// Analyze each interface status - worst status give global status
+	var tmpMsg string
 	for _, item := range cSwitchStatus.SwStatus {
-		switch getCondition(item) {
+		tmpMsg = ""
+		switch getStatusCondition(item) {
 		case ict.OkExit:
 			if icinga.Exit == ict.UnkExit {
 				icinga.Exit = ict.OkExit
@@ -152,14 +185,34 @@ func (cSwitchStatus *CiscoSwitchStatus) ReturnIcingaResult() ict.Icinga {
 			if icinga.Exit != ict.CriExit {
 				icinga.Exit = ict.WarExit
 			}
+			tmpMsg = item.Port + " Warning[" + item.Status + "]"
 		case ict.CriExit:
 			icinga.Exit = ict.CriExit
+			tmpMsg = item.Port + " Critical[" + item.Status + "]"
 		default:
 			if icinga.Exit != ict.CriExit && icinga.Exit != ict.WarExit {
 				icinga.Exit = ict.UnkExit
 			}
+			tmpMsg = item.Port + " Unknown[" + item.Status + "]"
+		}
+		if icinga.Message == ict.UnkMsg || icinga.Message == "" {
+			icinga.Message = tmpMsg
+		} else {
+			if tmpMsg != "" {
+				icinga.Message += " / " + tmpMsg
+			}
+		}
+		switch getMetricCondition(item) {
+		case Up:
+			up++
+		case Down:
+			down++
+		default:
+			exception++
 		}
 	}
+	all = up + down + exception
+	icinga.Metric = fmt.Sprintf("'Exception'=%d;;;;%d 'Up'=%d;;;;%d 'Down'=%d;;;;%d", exception, all, up, all, down, all)
 
 	return icinga
 }

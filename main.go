@@ -12,6 +12,9 @@ import (
 	"strings"
 )
 
+// version of program
+const version = "1.0.0"
+
 var (
 	arguments  docopt.Opts
 	err        error
@@ -38,7 +41,7 @@ func init() {
 Check CISCO Switch port status
 Usage: 
 	check_ciscoswitch (-h | --help | --version)
-	check_ciscoswitch status (-H <host> | --host=<host> -u <username> | --username=<username>) [-p <password> | --password=<password> | -i <pkey_file> | --identity=<pkey_file] [-P <port> | --port=<port>] 
+	check_ciscoswitch status (-H <host> | --host=<host>) (-u <username> | --username=<username>) [-p <password> | --password=<password> | -i <pkey_file> | --identity=<pkey_file] [-P <port> | --port=<port>] 
 Options:
 	--version  				Show check_cattools version.
 	-h --help  				Show this screen.
@@ -105,8 +108,8 @@ func main() {
 
 	// We return version of program and exit with Ok status
 	if params.version {
-		fmt.Printf("check_ciscoswitch version 0.0.0-build %s\n", buildcount)
-		os.Exit(ict.OkExit)
+		fmt.Printf("check_ciscoswitch version %s-build %s\n", version, buildcount)
+		os.Exit(ict.UnkExit)
 	}
 
 	// Check command arguments and calling method
@@ -121,9 +124,9 @@ func main() {
 		fmt.Println(icinga)
 		os.Exit(icinga.Exit)
 	default:
-		fmt.Printf("check_ciscoswitch version 0.0.0-build %s\n", buildcount)
+		fmt.Printf("check_ciscoswitch version %s-build %s\n", version, buildcount)
 		fmt.Printf("Usage: %s", usage)
-		os.Exit(ict.CriExit)
+		os.Exit(ict.UnkExit)
 	}
 
 }
