@@ -181,6 +181,9 @@ func (cSwitchStatus *CiscoSwitchStatus) ReturnIcingaResult() ict.Icinga {
 			if icinga.Exit == ict.UnkExit {
 				icinga.Exit = ict.OkExit
 			}
+			if Disabled.MatchString(item.Status) {
+				tmpMsg = item.Port + " Info[" + item.Status + "]"
+			}
 		case ict.WarExit:
 			if icinga.Exit != ict.CriExit {
 				icinga.Exit = ict.WarExit
@@ -211,8 +214,14 @@ func (cSwitchStatus *CiscoSwitchStatus) ReturnIcingaResult() ict.Icinga {
 			exception++
 		}
 	}
+
 	all = up + down + exception
-	icinga.Metric = fmt.Sprintf("'Exception'=%d;;;;%d 'Up'=%d;;;;%d 'Down'=%d;;;;%d", exception, all, up, all, down, all)
+	icinga.Metric = fmt.Sprintf("'Exception'=%d;;;0;%d 'Up'=%d;;;0;%d 'Down'=%d;;;0;%d", exception, all, up, all, down, all)
+
+	// Everything is ok and no messages is set just say that
+	if icinga.Message == "" {
+		icinga.Message = "All is Ok..."
+	}
 
 	return icinga
 }
